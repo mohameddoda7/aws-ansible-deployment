@@ -1,0 +1,90 @@
+---
+- name: Deploy Flask App on EC2 Instances
+  hosts: ec2_instances
+  become: yes  
+  tasks:
+
+  
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+          - git
+          - nginx
+        state: present
+
+    
+    - name: Clone Flask app from GitHub
+      git:
+        repo: "https://mohameddoda7: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@github.com/mohameddoda7/patientproject-flaskapp.git"
+        dest: /home/ubuntu/flask-app
+
+    
+    - name: Create virtual environment
+      command: python3 -m venv /home/ubuntu/flask-app/venv creates=/home/ubuntu/flask-app/venv
+
+    - name: Install requirements in virtual environment
+      pip:
+        requirements: /home/ubuntu/flask-app/requirements.txt
+        virtualenv: /home/ubuntu/flask-app/venv
+
+    
+    - name: Install Gunicorn
+      pip:
+        name: gunicorn
+        virtualenv: /home/ubuntu/flask-app/venv
+
+    
+    - name: Create Gunicorn systemd service file
+      copy:
+        dest: /etc/systemd/system/flaskapp.service
+        content: |
+          [Unit]
+          Description=Flask App using Gunicorn
+          After=network.target
+
+          [Service]
+          User=ubuntu
+          WorkingDirectory=/home/ubuntu/flask-app
+          ExecStart=/home/ubuntu/flask-app/venv/bin/gunicorn --bind 0.0.0.0:5000 app:app
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Gunicorn service
+      systemd:
+        name: flaskapp
+        enabled: yes
+        state: started
+
+    
+    - name: Create Nginx configuration for Flask app
+      template:
+        src: flaskapp_nginx.j2
+        dest: /etc/nginx/sites-available/flaskapp
+
+    
+
+    - name: Ensure symlink for Flask app in nginx sites-enabled
+      file:
+        src: /etc/nginx/sites-available/flaskapp
+        dest: /etc/nginx/sites-enabled/flaskapp
+        state: link
+      ignore_errors: yes    
+
+    - name: Restart Nginx to apply changes
+      systemd:
+        name: nginx
+        state: restarted
+
+    
+    - name: Ensure Nginx is listening on port 80
+      ufw:
+        rule: allow
+        name: 'Nginx HTTP'
